@@ -82,3 +82,18 @@ X_test_scaled  = scaler.transform(X_test)
 fn.plot_class_counts(y_train, "Training set class distribution")
 fn.plot_class_counts(y_val,   "Validation set class distribution")
 fn.plot_class_counts(y_test,  "Test set class distribution")
+
+fig, axes = plt.subplots(2, 5, figsize=(15, 3))
+fig.suptitle("Sample Images")
+
+for i, ax in enumerate(axes.flatten()):
+    img = X_train[i].reshape(112, 92)
+    label = y_train[i]
+
+    # Display the image
+    ax.imshow(img, cmap="gray")
+    ax.set_title(f"Label: {label}")
+    ax.axis("off")
+
+plt.tight_layout()
+plt.show()
