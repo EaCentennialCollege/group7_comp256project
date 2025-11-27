@@ -1,3 +1,6 @@
+# modified by Erwin Julian Alapide
+# Step 1: Data Preparation
+
 import numpy as np
 from scipy.io import loadmat
 import pandas as pd
@@ -7,86 +10,78 @@ import pandas as pd
 # 1. Load UMIST .mat helper
 # ----------------------------------------------------------
 def load_umist(mat_path="datasets/umist_cropped.mat"):
-    """
-    Load UMIST faces from .mat file.
-    从 .mat 文件中加载 UMIST 人脸数据。
 
-    Expected structure (typical):
-      mat['facedat']  -> 1 x N_person cell array
-      each cell: images of one person, shape either:
-        (H, W, n_i)  or  (H*W, n_i)
+    # Load the .mat file, which is a dictionary-like object
+    try:
+        mat = loadmat(mat_path)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Dataset file not found at: {mat_path}")
 
-    Returns:
-      images: (N, H, W)  raw grayscale images
-      labels: (N,)       person id [0..N_person-1]
-      df:      Pandas DataFrame with flattened features
-    """
-    mat = loadmat(mat_path)
+    # Check if the required 'facedat' key exists in the file
     if "facedat" not in mat:
-        raise RuntimeError(f"'facedat' not found in {mat_path}. Keys: {mat.keys()}")
+        raise ValueError(
+            f"'facedat' key not found in {mat_path}. Available keys: {list(mat.keys())}"
+        )
 
-    facedat = mat["facedat"]  # usually shape (1, 20)
-    n_persons = facedat.shape[1]
+    # 'facedat' is a 2D numpy array where each element is another array of images.
+    # It's structured like [[person1_images, person2_images, ...]]
+    facedat = mat["facedat"]
+    num_persons = facedat.shape[1]
 
-    images_list = []
-    labels_list = []
+    # Lists to store the processed images and their corresponding labels
+    all_images = []
+    all_labels = []
 
-    # First pass: infer image height & width from first subject
-    first_cell = facedat[0, 0]
-    if first_cell.ndim == 3:
-        H, W, _ = first_cell.shape
-    elif first_cell.ndim == 2:
-        # assume (H*W, n_i)
-        pixels = first_cell.shape[0]
-        # UMIST 通常是 112x92，如果像素数匹配就用；否则粗暴猜一个近似矩形
-        if pixels == 112 * 92:
-            H, W = 112, 92
-        else:
-            H = int(np.sqrt(pixels))
-            W = pixels // H
+    # The images for the first person are used to determine the height (H) and width (W)
+    # This assumes all images in the dataset have the same dimensions.
+    first_person_images = facedat[0, 0]
+    if first_person_images.ndim == 3:
+        # Case 1: Images are in a 3D array of shape (Height, Width, NumImages)
+        H, W, _ = first_person_images.shape
+    elif first_person_images.ndim == 2:
+        # Case 2: Images are flattened into a 2D array of shape (Height*Width, NumImages)
+        # We assume the standard UMIST image size of 112x92
+        H, W = 112, 92
+        if first_person_images.shape[0] != H * W:
+            # If the size doesn't match, raise an error for clarity.
+            raise ValueError(
+                f"Unexpected image format. Expected flattened {H*W} pixels."
+            )
     else:
-        raise RuntimeError("Unexpected facedat cell dimension")
+        raise ValueError("Unexpected array dimension for image data.")
 
-    print(f"[INFO] Inferred image size: H={H}, W={W}")
+    print(f"[INFO] Inferred image size: {H}x{W} pixels.")
 
-    # Iterate over persons
-    for pid in range(n_persons):
-        cell = facedat[0, pid]
-        if cell.ndim == 3:
-            # shape (H, W, n_i)
-            for j in range(cell.shape[2]):
-                img = cell[:, :, j]
-                images_list.append(img.astype(np.float32))
-                labels_list.append(pid)
-        elif cell.ndim == 2:
-            # shape (H*W, n_i) or (n_i, H*W)
-            if cell.shape[0] == H * W:
-                for j in range(cell.shape[1]):
-                    img = cell[:, j].reshape(H, W)
-                    images_list.append(img.astype(np.float32))
-                    labels_list.append(pid)
-            elif cell.shape[1] == H * W:
-                for j in range(cell.shape[0]):
-                    img = cell[j, :].reshape(H, W)
-                    images_list.append(img.astype(np.float32))
-                    labels_list.append(pid)
-            else:
-                raise RuntimeError(
-                    f"Cannot reshape cell for person {pid}, shape={cell.shape}"
-                )
-        else:
-            raise RuntimeError(f"Unexpected cell ndim={cell.ndim} for person {pid}")
+    # Loop through each person in the dataset
+    for person_id in range(num_persons):
+        person_images_data = facedat[0, person_id]
+        num_images_for_person = person_images_data.shape[-1]
 
-    images = np.stack(images_list, axis=0)  # (N, H, W)
-    labels = np.array(labels_list, dtype=np.int32)
-    N = images.shape[0]
+        # Loop through all images for the current person
+        for image_index in range(num_images_for_person):
+            if person_images_data.ndim == 3:
+                # If data is (H, W, num_images), extract the image slice
+                img = person_images_data[:, :, image_index]
+            else:  # ndim == 2
+                # If data is (H*W, num_images), extract the column and reshape it
+                img = person_images_data[:, image_index].reshape(H, W)
 
-    # Flatten for ML input (each row is one image)
-    X = images.reshape(N, -1)
+            # Add the processed image and its label to our lists
+            all_images.append(img.astype(np.float32))
+            all_labels.append(person_id)
 
-    # Build DataFrame
-    df = pd.DataFrame(X)
+    # Convert the lists of images and labels into NumPy arrays
+    images = np.stack(all_images)  # Shape: (Total_Images, H, W)
+    labels = np.array(all_labels, dtype=np.int32)  # Shape: (Total_Images,)
+    total_images = len(images)
+
+    # For machine learning, flatten each image from a 2D matrix (H, W)
+    # to a 1D vector (H * W).
+    flattened_images = images.reshape(total_images, H * W)
+
+    # Create a Pandas DataFrame for easier data manipulation
+    df = pd.DataFrame(flattened_images)
     df["person_id"] = labels
 
-    print(f"[INFO] Loaded {N} images from {n_persons} persons.")
+    print(f"[INFO] Loaded {total_images} images from {num_persons} persons.")
     return images, labels, df
