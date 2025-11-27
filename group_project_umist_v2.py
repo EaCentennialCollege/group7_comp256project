@@ -290,82 +290,92 @@ def run_autoencoder(X_train_sc, X_val_sc, X_test_sc, latent_dim=64, epochs=40, b
     return (Ztr, Zva, Zte), encoder, autoencoder
 
 
-# ----------------------------------------------------------
-# 4. Clustering on reduced features
-# ----------------------------------------------------------
-def evaluate_clustering(Z, labels, cluster_labels, method_name):
-    """
-    Evaluate clustering with ARI / NMI / silhouette and purity.
-    用 ARI / NMI / 轮廓系数 + 纯度评估聚类结果。
-    """
-    ari = adjusted_rand_score(labels, cluster_labels)
-    nmi = normalized_mutual_info_score(labels, cluster_labels)
+#modified by Al Helal Shourav
+# Step 4: Clustering
 
-    # silhouette: requires >= 2 clusters and >= 2 samples each
-    try:
-        sil = silhouette_score(Z, cluster_labels)
-    except Exception:
-        sil = np.nan
+from sklearn.manifold import TSNE
+from collections import Counter # used for purity calculation
 
-    # purity
-    cm = confusion_matrix(labels, cluster_labels)
-    purity = np.sum(np.max(cm, axis=0)) / np.sum(cm)
-
-    print(f"\n=== Clustering evaluation ({method_name}) ===")
-    print(f"Adjusted Rand Index (ARI): {ari:.4f}")
-    print(f"Normalized Mutual Info (NMI): {nmi:.4f}")
-    print(f"Silhouette score: {sil:.4f}")
-    print(f"Cluster purity: {purity:.4f}")
-
-
-def run_clustering(Z_pca_tr, Z_pca_te, y_train, y_test, n_clusters, prefix="pca"):
-    """
-    在 PCA 特征上执行 KMeans 和层次聚类，并做 2D 可视化。
-    """
-    # For visualization, project to 2D PCA
-    pca2 = PCA(n_components=2, random_state=42)
-    Z2 = pca2.fit_transform(Z_pca_tr)
-
-    # ---------- KMeans ----------
+def run_clustering(Z_train, Z_test, y_train, y_test, n_clusters, prefix="pca"):
+    # K-Means
     kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-    k_tr = kmeans.fit_predict(Z_pca_tr)
-    k_te = kmeans.predict(Z_pca_te)
+    # fit Kmeans on training data
+    k_tr = kmeans.fit_predict(Z_train)
+    k_te = kmeans.predict(Z_test)
 
-    evaluate_clustering(Z_pca_tr, y_train, k_tr, f"{prefix}-KMeans")
+    #evaluate cluster quality
 
-    # scatter
-    plt.figure(figsize=(6, 5))
-    plt.scatter(Z2[:, 0], Z2[:, 1], c=k_tr, cmap="tab20", s=10)
-    plt.title(f"{prefix.upper()} features - KMeans clustering\n{prefix} 特征 - KMeans 聚类")
-    plt.xlabel("PC1")
-    plt.ylabel("PC2")
-    km_path = os.path.join(OUT_DIR, f"{prefix}_kmeans_scatter.png")
-    plt.tight_layout()
-    plt.savefig(km_path, dpi=150)
-    plt.close()
-    print(f"[SAVE] {prefix} KMeans scatter -> {km_path}")
+    evaluate_clustering(Z_train, y_train, k_tr, f"{prefix}-KMeans")
+    #plot 2d visualization for training and test
+    plot_clustering_2d(Z_train, k_tr, y_train, f"{prefix}_kmeans_train.png")
+    plot_clustering_2d(Z_test, k_te, y_test, f"{prefix}_kmeans_test.png")
+    #print purity analysis for training and test clusters
+    cluster_purity(k_tr, y_train, "KMeans (train)")
+    cluster_purity(k_te, y_test, "KMeans (test)")
 
-    # ---------- Agglomerative ----------
-    agg = AgglomerativeClustering(n_clusters=n_clusters, linkage="ward")
-    a_tr = agg.fit_predict(Z_pca_tr)
-    # no predict() for Agglomerative; we'll just assign test later if needed
-
-    evaluate_clustering(Z_pca_tr, y_train, a_tr, f"{prefix}-Agglomerative")
-
-    plt.figure(figsize=(6, 5))
-    plt.scatter(Z2[:, 0], Z2[:, 1], c=a_tr, cmap="tab20", s=10)
-    plt.title(
-        f"{prefix.upper()} features - Agglomerative clustering\n{prefix} 特征 - 层次聚类 (ward)"
-    )
-    plt.xlabel("PC1")
-    plt.ylabel("PC2")
-    ag_path = os.path.join(OUT_DIR, f"{prefix}_agg_scatter.png")
-    plt.tight_layout()
-    plt.savefig(ag_path, dpi=150)
-    plt.close()
-    print(f"[SAVE] {prefix} Agglomerative scatter -> {ag_path}")
+    # Agglomerative (Hierarchical) Clustering
+    agg = AgglomerativeClustering(n_clusters=n_clusters)
+    #fit agglomerative on train and test set separately
+    a_tr = agg.fit_predict(Z_train)
+    a_te = agg.fit_predict(Z_test)  # Note: Agglomerative doesn't have .predict, so fit separately
+    evaluate_clustering(Z_train, y_train, a_tr, f"{prefix}-Agglomerative")
+    plot_clustering_2d(Z_train, a_tr, y_train, f"{prefix}_agglo_train.png")
+    plot_clustering_2d(Z_test, a_te, y_test, f"{prefix}_agglo_test.png")
+    cluster_purity(a_tr, y_train, "Agglomerative (train)")
+    cluster_purity(a_te, y_test, "Agglomerative (test)")
 
     return kmeans, k_tr, k_te
+
+def plot_clustering_2d(Z, cluster_labels, true_labels, out_path):
+    # Reduce to 2D for visualization
+    if Z.shape[1] > 2:
+        reducer = PCA(n_components=2)
+        Z_2d = reducer.fit_transform(Z)
+    else:
+        Z_2d = Z
+    import os
+    plt.figure(figsize=(7, 5))
+    #scatter plot each point colored by cluster label
+    scatter = plt.scatter(Z_2d[:, 0], Z_2d[:, 1], c=cluster_labels, cmap='tab20', alpha=0.7, s=30)
+    # Set title based on the filename
+    plot_label = os.path.splitext(os.path.basename(out_path))[0].replace('_', ' ').upper()
+    plt.title(f"Clustering Result: {plot_label}")
+    plt.xlabel("Component 1")
+    plt.ylabel("Component 2")
+    plt.colorbar(scatter, label="Cluster")
+    plt.tight_layout()
+
+    #save the plot to file
+    plt.savefig(os.path.join(OUT_DIR, out_path), dpi=150)
+    plt.show()  # shows the plot
+    plt.close()
+    print(f"[SAVE] 2D cluster plot -> {os.path.join(OUT_DIR, out_path)}")
+
+def evaluate_clustering(Z, y_true, cluster_labels, method_name):
+    #print clustering evaluation metrics
+    print(f"\n=== Clustering Evaluation: {method_name} ===")
+    print("Silhouette Score:", silhouette_score(Z, cluster_labels))
+    print("Adjusted Rand Index:", adjusted_rand_score(y_true, cluster_labels))
+    print("Normalized Mutual Info:", normalized_mutual_info_score(y_true, cluster_labels))
+
+def cluster_purity(cluster_labels, true_labels, method_name):
+    n_clusters = len(np.unique(cluster_labels))
+    total = len(cluster_labels)
+    print(f"\n[Purity Analysis] {method_name}")
+    for c in range(n_clusters):
+        idx = np.where(cluster_labels == c)[0]
+        if len(idx) == 0:
+            continue 
+        true_counts = Counter(true_labels[idx]) # count true labels in this cluster
+        most_common = true_counts.most_common(1)[0]
+        purity = most_common[1] / len(idx) # # Purity = fraction of majority label
+        print(f"Cluster {c}: size={len(idx)}, purity={purity:.2f}, label_counts={dict(true_counts)}")
+        
+    # Calculate Overall purity
+
+    majority_sum = sum(Counter([Counter(true_labels[np.where(cluster_labels == c)[0]]).most_common(1)[0][1] for c in range(n_clusters)]))
+    overall_purity = majority_sum / total
+    print(f"Overall purity: {overall_purity:.3f}")
 
 
 # ----------------------------------------------------------
