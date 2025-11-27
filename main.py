@@ -30,7 +30,7 @@ os.makedirs(OUT_DIR, exist_ok=True)
 
 def main():
     # ---------- Step 1: Load UMIST ----------
-    print("=== Step 1: Load UMIST dataset ===")
+    print("\n=== Step 1: Load UMIST dataset ===")
     images, labels, df = load_umist("datasets/umist_cropped.mat")
     N, H, W = images.shape
     X = images.reshape(N, -1)
