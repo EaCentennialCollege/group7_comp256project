@@ -20,9 +20,9 @@ from functions.clustering import (
     run_clustering,
     evaluate_clustering,
 )
-from functions.neural_network import (
-    train_classifier,
-)
+# from functions.neural_network import (
+#     train_classifier,
+# )
 
 
 os.makedirs(OUT_DIR, exist_ok=True)
@@ -66,6 +66,8 @@ def main():
     split_plot_path = os.path.join(OUT_DIR, "split_class_distribution.png")
     plot_split_distribution(y_train, y_val, y_test, split_plot_path)
 
+    '''
+
     # ---------- Step 3: Dimensionality reduction ----------
     print("\n=== Step 3: Dimensionality reduction (PCA + AE) ===")
     (Ztr_pca, Zva_pca, Zte_pca), pca_main = run_pca(
@@ -89,47 +91,25 @@ def main():
     k_tr_ae = kmeans_ae.fit_predict(Ztr_ae)
     evaluate_clustering(Ztr_ae, y_train, k_tr_ae, "AE-KMeans")
 
+'''
+
     # ---------- Step 5: Supervised NN classifier ----------
     print("\n=== Step 5: Supervised NN classifier ===")
 
-    # Option A: use PCA features only
-    model_pca = train_classifier(
-        Ztr_pca,
-        y_train,
-        Zva_pca,
-        y_val,
-        Zte_pca,
-        y_test,
-        images_test,
-        n_classes=n_classes,
-        feature_name="PCA",
+    from functions.neural_network import train_cnn_classifier
+
+    n_classes = len(np.unique(labels))
+  
+    model_cnn, history_cnn = train_cnn_classifier(
+        X_train_img=img_train,
+        y_train=y_train_raw,
+        X_val_img=img_val_tmp,
+        y_val=y_val_tmp,
+        X_test_img=img_test_tmp,
+        y_test=y_test_raw,
+        n_classes=n_classes
     )
 
-    # Option B (optional): concat PCA features + cluster one-hot
-    # 这里示例如何将 KMeans 聚类结果当作额外数值特征
-    k_tr_onehot = keras.utils.to_categorical(k_tr, num_classes=n_classes)
-    k_va = kmeans_pca.predict(Zva_pca)
-    k_va_onehot = keras.utils.to_categorical(k_va, num_classes=n_classes)
-    k_te_onehot = keras.utils.to_categorical(k_te, num_classes=n_classes)
-
-    Ztr_plus = np.concatenate([Ztr_pca, k_tr_onehot], axis=1)
-    Zva_plus = np.concatenate([Zva_pca, k_va_onehot], axis=1)
-    Zte_plus = np.concatenate([Zte_pca, k_te_onehot], axis=1)
-
-    model_pca_cluster = train_classifier(
-        Ztr_plus,
-        y_train,
-        Zva_plus,
-        y_val,
-        Zte_plus,
-        y_test,
-        images_test,
-        n_classes=n_classes,
-        feature_name="PCA+Cluster",
-    )
-
-    print("\n[Done] All steps (1–5) completed. 所有步骤 1–5 已完成。")
-    print("Artifacts saved in:", OUT_DIR)
 
 
 if __name__ == "__main__":
