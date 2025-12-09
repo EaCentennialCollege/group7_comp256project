@@ -290,7 +290,6 @@
 #     return (Ztr, Zva, Zte), encoder, autoencoder
 
 
-# #modified by Al Helal Shourav
 # # Step 4: Clustering
 
 # from sklearn.manifold import TSNE
